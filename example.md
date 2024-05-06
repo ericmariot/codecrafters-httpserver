@@ -35,3 +35,7 @@ curl/7.64.1
 ```
 
 ---
+
+curl -v -X GET http://localhost:4221/files/mango_strawberry_strawberry_pineapple
+
+---

@@ -1,15 +1,114 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 )
 
+var dir string
+
+type HTTPRequest struct {
+	version string
+	path    string
+	method  string
+	agent   string
+}
+type HTTPResponse struct {
+	Version       string
+	StatusCode    int
+	StatusMessage string
+}
+
+func (r *HTTPResponse) Build() string {
+	return fmt.Sprintf("%s %d %s \r\n\r\n", r.Version, r.StatusCode, r.StatusMessage)
+}
+
+func MakeHTTPResponse(statusCode int, statusMessage string) *HTTPResponse {
+	return &HTTPResponse{
+		Version:       "HTTP/1.1",
+		StatusCode:    statusCode,
+		StatusMessage: statusMessage,
+	}
+}
+
+func MakeHTTPRequest(conn *net.Conn) (*HTTPRequest, error) {
+	buf := make([]byte, 1024)
+	_, err := (*conn).Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	str := string(buf)
+	parts := strings.Split(str, "\r\n")
+	pathElements := strings.Split(parts[0], " ")
+	req := new(HTTPRequest)
+	req.method = pathElements[0]
+	req.path = pathElements[1]
+	req.version = pathElements[2]
+	req.agent = parts[2]
+	return req, nil
+
+}
+
+func proccessConnection(conn net.Conn) {
+	req, err := MakeHTTPRequest(&conn)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if req.path == "/" {
+		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+		conn.Close()
+	}
+
+	if strings.HasPrefix(req.path, "/echo/") {
+		echo := strings.TrimPrefix(req.path, "/echo/")
+		res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(echo), echo)
+
+		conn.Write([]byte(res))
+		conn.Close()
+	}
+
+	if strings.HasPrefix(req.path, "/user-agent") {
+		user := strings.TrimPrefix(req.agent, "User-Agent: ")
+		res := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(user), user)
+
+		conn.Write([]byte(res))
+		conn.Close()
+	}
+
+	if strings.HasPrefix(req.path, "/files/") {
+		path := fmt.Sprint(dir, "/", strings.Join(strings.Split(req.path, "/files/")[1:], ""))
+
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			fmt.Fprint(conn, "HTTP/1.1 404 NOT FOUND\r\n\r\n")
+			conn.Close()
+			return
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: " + strconv.Itoa(len(content)) + "\r\n\r\n" + string(content)))
+		conn.Close()
+	}
+
+	conn.Write([]byte(MakeHTTPResponse(404, "Not Found").Build()))
+	conn.Close()
+}
+
 func main() {
 	fmt.Println("Logs from your program will appear here!")
+	directory := flag.String("directory", ".", "Specify the directory")
+	flag.Parse()
+	dir = *directory
 
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
@@ -20,57 +119,8 @@ func main() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+			log.Fatal(err)
 		}
 		go proccessConnection(conn)
-	}
-}
-
-func proccessConnection(conn net.Conn) {
-	defer conn.Close()
-
-	data := make([]byte, 1024)
-	n, err := conn.Read(data)
-	if err != nil {
-		fmt.Println("Error reading: ", err.Error())
-	}
-
-	request := string(data[:n])
-	lines := strings.Split(request, "\r\n")
-	firstLine := strings.Fields(lines[0])
-
-	HTTP_HEADER_OK := "HTTP/1.1 200 OK\r\n"
-	HTTP_HEADER_NOT_FOUND := "HTTP/1.1 404 Not Found\r\n"
-	HTTP_CONTENT_TYPE_TEXT := "Content-Type: text/plain\r\n"
-	HTTP_CONTENT_LENGTH := "Content-Length: "
-	HTTP_SEPARATE_LINE := "\r\n\r\n"
-	HTTP_END := "\r\n"
-
-	if strings.Contains(firstLine[1], "/user-agent") {
-		userAgent := strings.Split(lines[2], ":")
-		response := strings.Trim(userAgent[1], " ")
-		contentLength := strconv.Itoa(len((response)))
-		conn.Write([]byte(
-			HTTP_HEADER_OK +
-				HTTP_CONTENT_TYPE_TEXT +
-				HTTP_CONTENT_LENGTH +
-				contentLength +
-				HTTP_SEPARATE_LINE +
-				response))
-	} else if strings.Contains(firstLine[1], "/echo/") {
-		response := strings.TrimPrefix(firstLine[1], "/echo/")
-		contentLength := strconv.Itoa(len((response)))
-		conn.Write([]byte(
-			HTTP_HEADER_OK +
-				HTTP_CONTENT_TYPE_TEXT +
-				HTTP_CONTENT_LENGTH +
-				contentLength +
-				HTTP_SEPARATE_LINE +
-				response))
-	} else if firstLine[1] == "/" {
-		conn.Write([]byte(HTTP_HEADER_OK + HTTP_END))
-	} else {
-		conn.Write([]byte(HTTP_HEADER_NOT_FOUND + HTTP_END))
 	}
 }
