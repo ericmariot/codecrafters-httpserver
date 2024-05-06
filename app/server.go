@@ -46,7 +46,18 @@ func proccessConnection(conn net.Conn) {
 	HTTP_SEPARATE_LINE := "\r\n\r\n"
 	HTTP_END := "\r\n"
 
-	if strings.Contains(firstLine[1], "/echo/") {
+	if strings.Contains(firstLine[1], "/user-agent") {
+		userAgent := strings.Split(lines[2], ":")
+		response := strings.Trim(userAgent[1], " ")
+		contentLength := strconv.Itoa(len((response)))
+		conn.Write([]byte(
+			HTTP_HEADER_OK +
+				HTTP_CONTENT_TYPE_TEXT +
+				HTTP_CONTENT_LENGTH +
+				contentLength +
+				HTTP_SEPARATE_LINE +
+				response))
+	} else if strings.Contains(firstLine[1], "/echo/") {
 		response := strings.TrimPrefix(firstLine[1], "/echo/")
 		contentLength := strconv.Itoa(len((response)))
 		conn.Write([]byte(
