@@ -39,3 +39,5 @@ curl/7.64.1
 curl -v -X GET http://localhost:4221/files/mango_strawberry_strawberry_pineapple
 
 ---
+
+curl -v -X POST http://localhost:4221/files/raspberry_pineapple_strawberry_strawberry -d 'pear pineapple grape raspberry apple pear grape strawberry'

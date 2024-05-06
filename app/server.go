@@ -11,12 +11,13 @@ import (
 	"strings"
 )
 
-var dir string
+const crlf = "\r\n"
 
 type HTTPRequest struct {
-	version string
-	path    string
+	body    string
 	method  string
+	path    string
+	version string
 	agent   string
 }
 type HTTPResponse struct {
@@ -44,9 +45,10 @@ func MakeHTTPRequest(conn *net.Conn) (*HTTPRequest, error) {
 		return nil, err
 	}
 	str := string(buf)
-	parts := strings.Split(str, "\r\n")
+	parts := strings.Split(str, crlf)
 	pathElements := strings.Split(parts[0], " ")
 	req := new(HTTPRequest)
+	req.body = strings.Replace(parts[len(parts)-1], "\x00", "", -1)
 	req.method = pathElements[0]
 	req.path = pathElements[1]
 	req.version = pathElements[2]
@@ -82,6 +84,19 @@ func proccessConnection(conn net.Conn) {
 		conn.Close()
 	}
 
+	if req.method == "POST" && strings.HasPrefix(req.path, "/files/") {
+		filename := strings.TrimPrefix(req.path, "/files/")
+		file := dir + filename
+		err := os.WriteFile(file, []byte(req.body), 0644)
+		if err != nil {
+			fmt.Println("Error writing file: ", err.Error())
+			os.Exit(1)
+		}
+
+		conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
+		conn.Close()
+	}
+
 	if strings.HasPrefix(req.path, "/files/") {
 		path := fmt.Sprint(dir, "/", strings.Join(strings.Split(req.path, "/files/")[1:], ""))
 
@@ -103,6 +118,8 @@ func proccessConnection(conn net.Conn) {
 	conn.Write([]byte(MakeHTTPResponse(404, "Not Found").Build()))
 	conn.Close()
 }
+
+var dir string
 
 func main() {
 	fmt.Println("Logs from your program will appear here!")
